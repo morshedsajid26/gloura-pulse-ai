@@ -1,22 +1,67 @@
-import { Brain, AlertTriangle, Target, Trophy, Zap, Info } from "lucide-react";
-
-const insights = [
-  { icon: Target, title: "Top Opportunities", accent: "text-accent", items: ["Lukas Wagner — Strong buying intent, requested demo", "Laura Pichler — Interested in AI for patient intake, wants proposal", "Markus Huber — Booked consultation, follow up on pricing"] },
-  { icon: AlertTriangle, title: "Calls Needing Attention", accent: "text-yellow-400", items: ["Elena Fischer — Escalated, compliance questions unresolved", "Anna Schmidt — Requested human callback, pending", "Sophie Berger — No answer, needs retry"] },
-  { icon: Brain, title: "Common Objections", accent: "text-purple-400", items: ["I need to talk to a real person first", "Can you send me more details via email?", "The pricing seems high compared to alternatives", "We already have a solution in place"] },
-  { icon: Trophy, title: "Best Performing Agent", accent: "text-green-400", items: ["Appointment Booking Agent — 84% success rate", "2,103 calls handled this month", "Average duration: 4m 05s", "Top outcome: Booked appointment (42%)"] },
-  { icon: Zap, title: "Recommended Optimizations", accent: "text-primary", items: ["Add pricing FAQ to Inbound Sales Agent knowledge base", "Reduce average hold time for Customer Support Agent", "Enable German language for Outbound Lead Qualifier", "Create escalation path for compliance questions"] },
-];
-
-const summaryCards = [
-  { period: "Today", calls: 73, booked: 12, escalated: 3, highlight: "Strong morning performance. 12 appointments booked before noon." },
-  { period: "This Week", calls: 311, booked: 34, escalated: 8, highlight: "Conversion rate up 4.7% vs last week. Outbound leads improving." },
-  { period: "This Month", calls: 1247, booked: 142, escalated: 31, highlight: "Best month yet. AI agents handling 89% of calls without escalation." },
-];
+import { AlertTriangle, Target, Trophy, Info, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import api from "../lib/api";
 
 export default function AISummaries() {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['aiSummaries'],
+    queryFn: async () => {
+      const res = await api.get('/api/v1/stats/ai-summaries/');
+      return res.data?.data || res.data;
+    }
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    console.error("AI Summaries fetch error:", error);
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] text-destructive gap-2">
+        <p>Failed to load AI summaries.</p>
+        <p className="text-sm opacity-80">{error?.response?.data?.message || error?.message || "Unknown error"}</p>
+      </div>
+    );
+  }
+
+  const summaries = [
+    data?.today_summary,
+    data?.this_week_summary,
+    data?.this_month_summary
+  ].filter(Boolean);
+
+  const getOutcomeCount = (outcomes, name) => {
+    return outcomes?.find(o => o.name === name)?.count || 0;
+  };
+
+  const topOpps = data?.top_opportunities?.length > 0 
+    ? data.top_opportunities.map(o => `${o.caller_name || "Unknown"} — ${o.outcome}: ${o.highlight}`)
+    : ["No top opportunities found yet."];
+
+  const needsAttention = data?.calls_needing_attention?.length > 0
+    ? data.calls_needing_attention.map(c => `${c.caller_name || "Unknown"} — ${c.issue || "Needs attention"}`)
+    : ["No calls require immediate attention."];
+
+  const agent = data?.best_performing_agent;
+  const bestAgentStats = agent ? [
+    `Agent: ${agent.assistant_name || 'N/A'}`,
+    `${agent.total_calls || 0} calls handled`,
+    `Average duration: ${agent.average_duration || '0s'}`
+  ] : ["No agent data available yet."];
+
+  const insights = [
+    { icon: Target, title: "Top Opportunities", accent: "text-accent", items: topOpps },
+    { icon: AlertTriangle, title: "Calls Needing Attention", accent: "text-yellow-400", items: needsAttention },
+    { icon: Trophy, title: "Best Performing Agent", accent: "text-green-400", items: bestAgentStats },
+  ];
+
   return (
-    <div className="space-y-6 max-w-7xl">
+    <div className="space-y-6 w-full">
       <div>
         <h2 className="text-2xl font-bold tracking-tight">AI Summaries</h2>
         <p className="text-sm text-muted-foreground mt-1">Executive-level intelligence from your AI conversations.</p>
@@ -27,17 +72,25 @@ export default function AISummaries() {
       </div>
 
       <div className="grid md:grid-cols-3 gap-4">
-        {summaryCards.map(s => (
-          <div key={s.period} className="glow-border rounded-xl bg-card p-5">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3">{s.period} Summary</p>
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              <div><p className="text-2xl font-bold">{s.calls}</p><p className="text-[10px] text-muted-foreground">Calls</p></div>
-              <div><p className="text-2xl font-bold text-green-400">{s.booked}</p><p className="text-[10px] text-muted-foreground">Booked</p></div>
-              <div><p className="text-2xl font-bold text-yellow-400">{s.escalated}</p><p className="text-[10px] text-muted-foreground">Escalated</p></div>
+        {summaries.map(s => {
+          const testDrives = getOutcomeCount(s.outcomes, "Test Drive");
+          const leasing = getOutcomeCount(s.outcomes, "Leasing Request");
+          const buy = getOutcomeCount(s.outcomes, "Buy");
+          
+          return (
+            <div key={s.title} className="glow-border rounded-xl bg-card p-5">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3">{s.title} Summary</p>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div><p className="text-2xl font-bold">{s.total_calls}</p><p className="text-[10px] text-muted-foreground">Calls</p></div>
+                <div><p className="text-2xl font-bold text-green-400">{testDrives}</p><p className="text-[10px] text-muted-foreground">Test Drives</p></div>
+                <div><p className="text-2xl font-bold text-accent">{leasing}</p><p className="text-[10px] text-muted-foreground">Leasing</p></div>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {buy > 0 ? `${buy} Buy intent detected.` : leasing > 0 ? `${leasing} Leasing requests processed.` : testDrives > 0 ? `${testDrives} Test drives scheduled.` : "No major outcomes yet."}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">{s.highlight}</p>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
